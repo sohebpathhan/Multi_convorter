@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A fast, offline-friendly universal converter for everyday units, currencies, colors, numbers, and text."
+    />
+    <title>Universal Converter</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="Converter categories">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <span></span>
+            <span></span>
+          </div>
+          <div>
+            <p class="eyebrow">Universal</p>
+            <h1>Converter</h1>
+          </div>
+        </div>
+
+        <div class="search-wrap">
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="m21 21-4.3-4.3m1.3-5.2a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0Z" />
+          </svg>
+          <input id="searchInput" type="search" placeholder="Search converters" autocomplete="off" />
+        </div>
+
+        <nav id="categoryNav" class="category-nav"></nav>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="categoryEyebrow">Everyday tools</p>
+            <h2 id="categoryTitle">Length</h2>
+          </div>
+          <div class="topbar-actions">
+            <button class="icon-btn" id="swapBtn" type="button" title="Swap units" aria-label="Swap units">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M7 7h11m0 0-4-4m4 4-4 4M17 17H6m0 0 4-4m-4 4 4 4" />
+              </svg>
+            </button>
+            <button class="icon-btn" id="copyBtn" type="button" title="Copy result" aria-label="Copy result">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M8 8h10v10H8z" />
+                <path d="M6 16H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+              </svg>
+            </button>
+            <button class="icon-btn" id="themeBtn" type="button" title="Toggle theme" aria-label="Toggle theme">
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <path d="M12 3a6 6 0 1 0 9 7.4A7.5 7.5 0 1 1 12 3Z" />
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="converter-grid">
+          <section class="panel converter-panel" aria-label="Converter">
+            <div id="unitConverter" class="converter-mode">
+              <div class="field">
+                <label for="fromValue">From</label>
+                <div class="value-row">
+                  <input id="fromValue" type="number" inputmode="decimal" value="1" />
+                  <select id="fromUnit"></select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="toValue">To</label>
+                <div class="value-row">
+                  <input id="toValue" type="number" inputmode="decimal" />
+                  <select id="toUnit"></select>
+                </div>
+              </div>
+              <div id="currencyNote" class="note hidden">
+                Currency rates are editable sample values for offline use. Update the rate table before production use.
+              </div>
+            </div>
+
+            <div id="colorConverter" class="converter-mode hidden">
+              <div class="color-layout">
+                <label class="color-picker" for="colorInput">
+                  <span>Color</span>
+                  <input id="colorInput" type="color" value="#2f80ed" />
+                </label>
+                <div id="colorPreview" class="color-preview" aria-label="Color preview"></div>
+              </div>
+              <div class="result-list" id="colorResults"></div>
+            </div>
+
+            <div id="numberConverter" class="converter-mode hidden">
+              <div class="field">
+                <label for="numberInput">Number</label>
+                <input id="numberInput" type="text" value="255" spellcheck="false" />
+              </div>
+              <div class="segmented" role="tablist" aria-label="Input base">
+                <button data-base="10" class="active" type="button">Dec</button>
+                <button data-base="2" type="button">Bin</button>
+                <button data-base="8" type="button">Oct</button>
+                <button data-base="16" type="button">Hex</button>
+              </div>
+              <div class="result-list" id="numberResults"></div>
+            </div>
+
+            <div id="textConverter" class="converter-mode hidden">
+              <div class="field">
+                <label for="textInput">Text</label>
+                <textarea id="textInput" rows="7" spellcheck="false">Universal Converter</textarea>
+              </div>
+              <div class="result-list" id="textResults"></div>
+            </div>
+
+            <div id="fileConverter" class="converter-mode hidden">
+              <label class="drop-zone" for="fileInput">
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M12 3v12m0-12 4 4m-4-4-4 4" />
+                  <path d="M5 15v3a3 3 0 0 0 3 3h8a3 3 0 0 0 3-3v-3" />
+                </svg>
+                <span>Choose a file</span>
+                <small id="fileSummary">Images and text convert locally. Video, audio, and documents use the AWS API.</small>
+                <input id="fileInput" type="file" />
+              </label>
+
+              <div class="value-row">
+                <div class="field">
+                  <label for="targetFormat">Convert to</label>
+                  <select id="targetFormat"></select>
+                </div>
+                <div class="field">
+                  <label for="apiEndpoint">API endpoint</label>
+                  <input id="apiEndpoint" type="url" placeholder="https://api.example.com" />
+                </div>
+              </div>
+
+              <div class="file-actions">
+                <button id="convertFileBtn" class="primary-btn" type="button">
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M7 7h11m0 0-4-4m4 4-4 4M17 17H6m0 0 4-4m-4 4 4 4" />
+                  </svg>
+                  Convert file
+                </button>
+                <a id="downloadFileLink" class="secondary-link hidden" href="#" download>Download</a>
+              </div>
+
+              <div id="fileStatus" class="note">
+                Select a file to see supported target formats.
+              </div>
+            </div>
+          </section>
+
+          <section class="panel details-panel" aria-label="Conversion details">
+            <div class="result-card">
+              <p class="eyebrow">Result</p>
+              <output id="primaryResult">1 meter = 3.28084 feet</output>
+              <p id="formulaText">Multiply by 3.28084</p>
+            </div>
+
+            <div class="quick-list">
+              <div class="section-title">
+                <h3>Quick conversions</h3>
+                <button id="clearHistoryBtn" type="button">Clear</button>
+              </div>
+              <div id="quickResults"></div>
+            </div>
+
+            <div class="history-list">
+              <div class="section-title">
+                <h3>History</h3>
+                <span id="historyCount">0</span>
+              </div>
+              <div id="historyList" class="history-items"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
