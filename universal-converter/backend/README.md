@@ -1,6 +1,6 @@
 # Universal Converter API
 
-This API powers heavy file conversion for the Universal Converter frontend. It is designed for AWS App Runner, ECS Fargate, or any Docker host.
+This API powers heavy file conversion for the Universal Converter frontend. This README shows the non-Docker AWS EC2 setup.
 
 ## What It Handles
 
@@ -8,33 +8,43 @@ This API powers heavy file conversion for the Universal Converter frontend. It i
 - Images through ImageMagick: PNG, JPEG, WebP, GIF, TIFF, BMP
 - Documents through LibreOffice and Pandoc: PDF, DOCX, HTML, TXT, Markdown, ODT, RTF
 
-No service can honestly guarantee every proprietary format in existence, but this stack covers the practical universal-converter set and can be extended by adding tools to the Docker image.
+No service can honestly guarantee every proprietary format in existence, but this stack covers the practical universal-converter set and can be extended by installing more command-line converters on the server.
 
-## Local Run
+## Run Directly On EC2 Without Docker
 
-```powershell
-docker build -t universal-converter-api .
-docker run --rm -p 8081:8080 universal-converter-api
+Install dependencies on Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y curl nginx ffmpeg imagemagick libreoffice pandoc
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo npm install -g pm2
 ```
 
-Set the frontend API endpoint to:
+Install app packages:
 
-```text
-http://localhost:8081
+```bash
+cd /home/ubuntu/universal-converter-backend
+npm install
 ```
 
-## AWS App Runner
+Start the API:
 
-1. Push this `backend` folder as a container image to Amazon ECR.
-2. Create an App Runner service from the ECR image.
-3. Set environment variables:
-   - `PORT=8080`
-   - `MAX_UPLOAD_MB=1024`
-   - `CORS_ORIGIN=https://your-cloudfront-domain`
-4. Copy the App Runner service URL into `config.js`:
+```bash
+CORS_ORIGIN=* PORT=8080 MAX_UPLOAD_MB=1024 pm2 start server.js --name universal-converter-api
+pm2 save
+pm2 startup
+```
+
+Test:
+
+```bash
+curl http://localhost:8080/health
+```
+
+Set the frontend API endpoint in `config.js`:
 
 ```js
-window.CONVERTER_API_URL = "https://your-app-runner-url";
+window.CONVERTER_API_URL = "http://YOUR_EC2_PUBLIC_IP";
 ```
-
-Then deploy the static frontend to S3 + CloudFront.
