@@ -1,182 +1,176 @@
 # Azure Deployment Guide
 
-This guide deploys the full Universal Converter application on Azure.
+This guide deploys the full Universal Converter app on Azure without using your local machine for uploads.
 
-The deployment uses:
+You will use:
 
-- Frontend: Azure Storage Static Website
-- Backend: Azure Ubuntu VM running Node.js directly
-- Backend tools: FFmpeg, ImageMagick, LibreOffice, Pandoc
-- Process manager: PM2
-- Reverse proxy: Nginx
+- Azure Portal UI to create resources
+- Azure Cloud Shell in the browser to upload frontend files from GitHub
+- Azure VM Run Command in the browser to install and start the backend
+- GitHub repo: `https://github.com/sohebpathhan/Multi_convorter.git`
 
-Docker is not required for this deployment.
+Deployment architecture:
 
-## 1. Prerequisites
+- Frontend: Azure Storage Account Static Website
+- Backend: Azure Ubuntu VM
+- Backend runtime: Node.js + PM2 + Nginx
+- Conversion tools: FFmpeg, ImageMagick, LibreOffice, Pandoc
 
-Install these on your local computer:
+Docker is not used.
 
-- Azure CLI
-- Node.js is optional locally
-- SSH client
+## 1. Azure Portal Login
 
-Login to Azure:
+1. Open `https://portal.azure.com`.
+2. Sign in to your Azure account.
+3. Make sure you are in the correct subscription.
 
-```powershell
-az login
+## 2. Create A Resource Group Using Azure UI
+
+1. In Azure Portal, search for `Resource groups`.
+2. Click `Create`.
+3. Choose your subscription.
+4. Resource group name:
+
+```text
+rg-universal-converter
 ```
 
-Set your Azure subscription if you have more than one:
+5. Region:
 
-```powershell
-az account list --output table
-az account set --subscription "YOUR_SUBSCRIPTION_ID_OR_NAME"
+```text
+East US
 ```
 
-Go to the project folder:
+6. Click `Review + create`.
+7. Click `Create`.
 
-```powershell
-cd C:\Users\surface\Documents\Codex\2026-06-09\create-a-fully-functional-web-application\outputs\universal-converter
+## 3. Create Backend VM Using Azure UI
+
+1. In Azure Portal, search for `Virtual machines`.
+2. Click `Create`.
+3. Click `Azure virtual machine`.
+4. Fill the Basics tab:
+
+```text
+Subscription: your subscription
+Resource group: rg-universal-converter
+Virtual machine name: vm-universal-converter-api
+Region: East US
+Image: Ubuntu Server 22.04 LTS
+Size: Standard_D2s_v5 or Standard_D4s_v5
+Authentication type: SSH public key
+Username: azureuser
+SSH public key source: Generate new key pair
+Key pair name: universal-converter-key
 ```
 
-## 2. Create Azure Variables
+5. Click `Next: Disks`.
+6. Set OS disk size to at least:
 
-Storage account names must be globally unique and lowercase.
-
-```powershell
-$RG="rg-universal-converter"
-$LOCATION="eastus"
-$STORAGE="uniconverter$((Get-Random -Minimum 10000 -Maximum 99999))"
-$VM="vm-universal-converter-api"
-$ADMIN="azureuser"
+```text
+64 GiB
 ```
 
-Create the resource group:
+7. Click `Next: Networking`.
+8. Under inbound ports, allow:
 
-```powershell
-az group create --name $RG --location $LOCATION
+```text
+SSH 22
+HTTP 80
 ```
 
-## 3. Create The Backend VM
+9. Click `Review + create`.
+10. Click `Create`.
+11. Download the generated private key when Azure asks.
+12. Wait for the VM deployment to finish.
 
-Create an Ubuntu VM:
+Note: You are creating the VM from Azure UI. The backend code will be pulled directly from GitHub later.
 
-```powershell
-az vm create `
-  --resource-group $RG `
-  --name $VM `
-  --image Ubuntu2204 `
-  --size Standard_D2s_v5 `
-  --admin-username $ADMIN `
-  --generate-ssh-keys `
-  --public-ip-sku Standard
+## 4. Get The VM Public IP
+
+1. Open the VM `vm-universal-converter-api`.
+2. On the Overview page, copy `Public IP address`.
+3. Save it as:
+
+```text
+YOUR_VM_PUBLIC_IP
 ```
 
-Open HTTP and SSH ports:
+Example:
 
-```powershell
-az vm open-port --resource-group $RG --name $VM --port 22
-az vm open-port --resource-group $RG --name $VM --port 80
+```text
+20.10.30.40
 ```
 
-Get the VM public IP:
+Your backend URL will be:
 
-```powershell
-$PUBLIC_IP=$(az vm show `
-  --resource-group $RG `
-  --name $VM `
-  --show-details `
-  --query publicIps `
-  --output tsv)
-
-$PUBLIC_IP
+```text
+http://YOUR_VM_PUBLIC_IP
 ```
 
-## 4. Install Backend Software On The VM
+## 5. Install Backend From GitHub Using Azure VM Run Command
 
-SSH into the VM:
+This step does not use your local machine.
 
-```powershell
-ssh $ADMIN@$PUBLIC_IP
-```
-
-Run these commands on the VM:
+1. Open the VM in Azure Portal.
+2. In the left menu, search or scroll to `Run command`.
+3. Click `RunShellScript`.
+4. Paste this script.
+5. Replace nothing unless your GitHub repo URL changes.
+6. Click `Run`.
 
 ```bash
+#!/usr/bin/env bash
+set -e
+
+REPO_URL="https://github.com/sohebpathhan/Multi_convorter.git"
+APP_PARENT="/opt/multi-converter"
+APP_DIR="$APP_PARENT/app"
+PORT="8080"
+
 sudo apt update
 sudo apt upgrade -y
 sudo apt install -y curl git unzip nginx ffmpeg imagemagick libreoffice pandoc
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
+
+if ! command -v node >/dev/null 2>&1; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt install -y nodejs
+fi
+
 sudo npm install -g pm2
-node -v
-npm -v
-ffmpeg -version
-```
 
-Exit the VM:
+sudo rm -rf "$APP_PARENT"
+sudo mkdir -p "$APP_PARENT"
+sudo git clone "$REPO_URL" "$APP_DIR"
+sudo chown -R azureuser:azureuser "$APP_PARENT"
 
-```bash
-exit
-```
+cd "$APP_DIR"
+FRONTEND_DIR="$(find . -type f -name index.html -path '*universal-converter*' -print -quit | xargs dirname)"
 
-## 5. Upload Backend Code To The VM
+if [ -z "$FRONTEND_DIR" ]; then
+  FRONTEND_DIR="$(find . -maxdepth 3 -type f -name index.html -print -quit | xargs dirname)"
+fi
 
-From your local computer, run this from the `universal-converter` folder:
+if [ -z "$FRONTEND_DIR" ]; then
+  echo "Could not find frontend index.html in repo."
+  exit 1
+fi
 
-```powershell
-scp -r .\backend "${ADMIN}@${PUBLIC_IP}:/home/${ADMIN}/universal-converter-backend"
-```
+BACKEND_DIR="$FRONTEND_DIR/backend"
 
-SSH into the VM again:
+if [ ! -d "$BACKEND_DIR" ]; then
+  echo "Could not find backend folder at $BACKEND_DIR."
+  exit 1
+fi
 
-```powershell
-ssh $ADMIN@$PUBLIC_IP
-```
-
-Install backend dependencies:
-
-```bash
-cd /home/azureuser/universal-converter-backend
+cd "$BACKEND_DIR"
 npm install
-```
 
-## 6. Start The Backend API With PM2
-
-Run this on the VM:
-
-```bash
-cd /home/azureuser/universal-converter-backend
-CORS_ORIGIN=* PORT=8080 MAX_UPLOAD_MB=1024 pm2 start server.js --name universal-converter-api
+pm2 delete universal-converter-api || true
+CORS_ORIGIN=* PORT="$PORT" MAX_UPLOAD_MB=1024 pm2 start server.js --name universal-converter-api
 pm2 save
-pm2 startup
-```
 
-The `pm2 startup` command prints one more command. Copy that printed command and run it.
-
-Test the backend locally on the VM:
-
-```bash
-curl http://localhost:8080/health
-```
-
-Expected response:
-
-```json
-{"ok":true,"service":"universal-converter-api"}
-```
-
-## 7. Configure Nginx For The Backend
-
-Create an Nginx config:
-
-```bash
-sudo nano /etc/nginx/sites-available/universal-converter-api
-```
-
-Paste this:
-
-```nginx
+sudo tee /etc/nginx/sites-available/universal-converter-api >/dev/null <<'NGINX'
 server {
     listen 80;
     server_name _;
@@ -194,27 +188,23 @@ server {
         proxy_send_timeout 3600;
     }
 }
-```
+NGINX
 
-Enable the site:
-
-```bash
-sudo ln -s /etc/nginx/sites-available/universal-converter-api /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/universal-converter-api /etc/nginx/sites-enabled/universal-converter-api
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t
 sudo systemctl restart nginx
+
+curl -f http://localhost:8080/health
+echo "Backend installed successfully."
 ```
 
-Exit the VM:
+## 6. Test Backend In Browser
 
-```bash
-exit
-```
+Open this URL in your browser:
 
-Test the backend from your local computer:
-
-```powershell
-curl "http://$PUBLIC_IP/health"
+```text
+http://YOUR_VM_PUBLIC_IP/health
 ```
 
 Expected response:
@@ -223,226 +213,318 @@ Expected response:
 {"ok":true,"service":"universal-converter-api"}
 ```
 
-Your backend API URL is:
+If it works, your backend is running.
+
+## 7. Create Storage Account For Frontend Using Azure UI
+
+1. In Azure Portal, search for `Storage accounts`.
+2. Click `Create`.
+3. Fill the Basics tab:
 
 ```text
-http://YOUR_VM_PUBLIC_IP
+Subscription: your subscription
+Resource group: rg-universal-converter
+Storage account name: multiconverter plus random numbers
+Region: East US
+Performance: Standard
+Redundancy: Locally-redundant storage (LRS)
 ```
 
-## 8. Configure The Frontend For Azure Backend
+Example storage account name:
 
-Edit `config.js` in the `universal-converter` folder:
-
-```js
-window.CONVERTER_API_URL = "http://YOUR_VM_PUBLIC_IP";
+```text
+multiconverter12345
 ```
 
-Use the actual public IP from `$PUBLIC_IP`.
+4. Click `Review`.
+5. Click `Create`.
+6. Wait for deployment to finish.
+7. Open the storage account.
+
+## 8. Enable Static Website Using Azure UI
+
+1. Open your storage account.
+2. In the left menu, find `Data management`.
+3. Click `Static website`.
+4. Set `Static website` to `Enabled`.
+5. Index document name:
+
+```text
+index.html
+```
+
+6. Error document path:
+
+```text
+index.html
+```
+
+7. Click `Save`.
+8. Copy the `Primary endpoint`.
 
 Example:
 
-```js
-window.CONVERTER_API_URL = "http://20.10.30.40";
+```text
+https://multiconverter12345.z13.web.core.windows.net/
 ```
 
-## 9. Create Azure Storage Static Website
+Save it as:
 
-Create a storage account:
-
-```powershell
-az storage account create `
-  --name $STORAGE `
-  --resource-group $RG `
-  --location $LOCATION `
-  --sku Standard_LRS `
-  --kind StorageV2 `
-  --allow-blob-public-access true
+```text
+YOUR_FRONTEND_URL
 ```
 
-Enable static website hosting:
+## 9. Upload Frontend From GitHub Using Azure Cloud Shell
 
-```powershell
-$STORAGE_KEY=$(az storage account keys list `
-  --account-name $STORAGE `
-  --resource-group $RG `
-  --query "[0].value" `
-  --output tsv)
+This step also avoids your local machine.
 
-az storage blob service-properties update `
-  --account-name $STORAGE `
-  --account-key $STORAGE_KEY `
-  --static-website `
-  --index-document index.html `
-  --404-document index.html
+1. In Azure Portal, click the Cloud Shell icon in the top bar.
+2. Choose `Bash`.
+3. If Azure asks to create Cloud Shell storage, click `Create storage`.
+4. Run this command, replacing the values:
+
+```bash
+RESOURCE_GROUP="rg-universal-converter"
+STORAGE_ACCOUNT="YOUR_STORAGE_ACCOUNT_NAME"
+BACKEND_URL="http://YOUR_VM_PUBLIC_IP"
+REPO_URL="https://github.com/sohebpathhan/Multi_convorter.git"
 ```
 
-## 10. Upload Frontend Files
+Clone the GitHub repo:
 
-Upload only the frontend files to the `$web` container:
-
-```powershell
-az storage blob upload `
-  --account-name $STORAGE `
-  --container-name "`$web" `
-  --name index.html `
-  --file .\index.html `
-  --overwrite `
-  --account-key $STORAGE_KEY
-
-az storage blob upload `
-  --account-name $STORAGE `
-  --container-name "`$web" `
-  --name styles.css `
-  --file .\styles.css `
-  --overwrite `
-  --account-key $STORAGE_KEY
-
-az storage blob upload `
-  --account-name $STORAGE `
-  --container-name "`$web" `
-  --name app.js `
-  --file .\app.js `
-  --overwrite `
-  --account-key $STORAGE_KEY
-
-az storage blob upload `
-  --account-name $STORAGE `
-  --container-name "`$web" `
-  --name config.js `
-  --file .\config.js `
-  --overwrite `
-  --account-key $STORAGE_KEY
+```bash
+rm -rf ~/Multi_convorter
+git clone "$REPO_URL" ~/Multi_convorter
+cd ~/Multi_convorter
 ```
 
-Get the frontend website URL:
+Find the frontend folder:
 
-```powershell
-$FRONTEND_URL=$(az storage account show `
-  --name $STORAGE `
-  --resource-group $RG `
-  --query "primaryEndpoints.web" `
-  --output tsv)
+```bash
+FRONTEND_DIR="$(find . -type f -name index.html -path '*universal-converter*' -print -quit | xargs dirname)"
 
-$FRONTEND_URL
+if [ -z "$FRONTEND_DIR" ]; then
+  FRONTEND_DIR="$(find . -maxdepth 3 -type f -name index.html -print -quit | xargs dirname)"
+fi
+
+echo "$FRONTEND_DIR"
 ```
 
-Open `$FRONTEND_URL` in your browser.
+Update `config.js` so the frontend calls your Azure VM backend:
 
-## 11. Test The Full App
+```bash
+cd "$FRONTEND_DIR"
+printf 'window.CONVERTER_API_URL = "%s";\n' "$BACKEND_URL" > config.js
+```
 
-Test these in the browser:
+Get the storage key:
+
+```bash
+STORAGE_KEY="$(az storage account keys list \
+  --account-name "$STORAGE_ACCOUNT" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query '[0].value' \
+  --output tsv)"
+```
+
+Upload frontend files to the `$web` container:
+
+```bash
+az storage blob upload-batch \
+  --account-name "$STORAGE_ACCOUNT" \
+  --account-key "$STORAGE_KEY" \
+  --destination '$web' \
+  --source . \
+  --overwrite \
+  --exclude 'backend/*' '*.md' 'cloudformation.yml' 'deploy-aws.ps1'
+```
+
+Get the frontend URL:
+
+```bash
+az storage account show \
+  --name "$STORAGE_ACCOUNT" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query "primaryEndpoints.web" \
+  --output tsv
+```
+
+Open that URL in your browser.
+
+## 10. Test The Full App
+
+Open your Azure Storage Static Website URL.
+
+Test:
 
 1. Length conversion, such as meter to foot.
 2. Color conversion, such as HEX to RGB.
-3. File conversion with PNG to WebP. This should run in the browser.
-4. File conversion with MP4 to MP3. This should call the Azure VM backend.
-5. File conversion with DOCX to PDF. This should call the Azure VM backend.
+3. File conversion with PNG to WebP. This runs locally in the browser.
+4. File conversion with MP4 to MP3. This calls the Azure VM backend.
+5. File conversion with DOCX to PDF. This calls the Azure VM backend.
 
-## 12. Fix CORS For Production
+## 11. Update Backend After Pushing New GitHub Code
 
-During testing, the backend uses:
+When you push new backend code to GitHub:
+
+1. Open Azure Portal.
+2. Open VM `vm-universal-converter-api`.
+3. Go to `Run command`.
+4. Click `RunShellScript`.
+5. Paste and run:
+
+```bash
+#!/usr/bin/env bash
+set -e
+
+APP_DIR="/opt/multi-converter/app"
+cd "$APP_DIR"
+sudo -u azureuser git pull
+
+FRONTEND_DIR="$(find . -type f -name index.html -path '*universal-converter*' -print -quit | xargs dirname)"
+BACKEND_DIR="$FRONTEND_DIR/backend"
+
+cd "$BACKEND_DIR"
+npm install
+pm2 restart universal-converter-api
+curl -f http://localhost:8080/health
+echo "Backend updated."
+```
+
+## 12. Update Frontend After Pushing New GitHub Code
+
+Use Azure Cloud Shell again:
+
+```bash
+RESOURCE_GROUP="rg-universal-converter"
+STORAGE_ACCOUNT="YOUR_STORAGE_ACCOUNT_NAME"
+BACKEND_URL="http://YOUR_VM_PUBLIC_IP"
+REPO_URL="https://github.com/sohebpathhan/Multi_convorter.git"
+
+rm -rf ~/Multi_convorter
+git clone "$REPO_URL" ~/Multi_convorter
+cd ~/Multi_convorter
+
+FRONTEND_DIR="$(find . -type f -name index.html -path '*universal-converter*' -print -quit | xargs dirname)"
+
+if [ -z "$FRONTEND_DIR" ]; then
+  FRONTEND_DIR="$(find . -maxdepth 3 -type f -name index.html -print -quit | xargs dirname)"
+fi
+
+cd "$FRONTEND_DIR"
+printf 'window.CONVERTER_API_URL = "%s";\n' "$BACKEND_URL" > config.js
+
+STORAGE_KEY="$(az storage account keys list \
+  --account-name "$STORAGE_ACCOUNT" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query '[0].value' \
+  --output tsv)"
+
+az storage blob upload-batch \
+  --account-name "$STORAGE_ACCOUNT" \
+  --account-key "$STORAGE_KEY" \
+  --destination '$web' \
+  --source . \
+  --overwrite \
+  --exclude 'backend/*' '*.md' 'cloudformation.yml' 'deploy-aws.ps1'
+```
+
+Refresh the frontend URL in your browser.
+
+## 13. Lock Down CORS After Testing
+
+During testing, the backend runs with:
 
 ```bash
 CORS_ORIGIN=*
 ```
 
-For production, set it to your Azure frontend URL.
+After the frontend is deployed, change it to your Azure Static Website URL.
 
-SSH into the VM:
-
-```powershell
-ssh $ADMIN@$PUBLIC_IP
-```
-
-Restart the PM2 process with your real frontend URL:
+1. Open Azure Portal.
+2. Open VM `vm-universal-converter-api`.
+3. Go to `Run command`.
+4. Click `RunShellScript`.
+5. Paste this, replacing `YOUR_FRONTEND_URL`:
 
 ```bash
-pm2 delete universal-converter-api
-cd /home/azureuser/universal-converter-backend
-CORS_ORIGIN=https://YOUR_STORAGE_STATIC_WEBSITE_URL PORT=8080 MAX_UPLOAD_MB=1024 pm2 start server.js --name universal-converter-api
+#!/usr/bin/env bash
+set -e
+
+FRONTEND_URL="https://YOUR_STORAGE_STATIC_WEBSITE_URL"
+APP_DIR="/opt/multi-converter/app"
+FRONTEND_DIR="$(find "$APP_DIR" -type f -name index.html -path '*universal-converter*' -print -quit | xargs dirname)"
+BACKEND_DIR="$FRONTEND_DIR/backend"
+
+pm2 delete universal-converter-api || true
+cd "$BACKEND_DIR"
+CORS_ORIGIN="$FRONTEND_URL" PORT=8080 MAX_UPLOAD_MB=1024 pm2 start server.js --name universal-converter-api
 pm2 save
+curl -f http://localhost:8080/health
 ```
 
-Use the exact URL from `$FRONTEND_URL`.
+## 14. Add HTTPS Later
 
-## 13. Add HTTPS
+For testing, HTTP is enough.
 
-For testing, HTTP works.
+For production:
 
-For production, add HTTPS to both frontend and backend:
+- Frontend: use Azure Front Door or Azure CDN with a custom domain.
+- Backend: point a domain such as `api.yourdomain.com` to the VM public IP and install Certbot on the VM.
 
-- Frontend: use Azure CDN or Azure Front Door with a custom domain.
-- Backend: use a domain name pointed to the VM public IP, then install Certbot.
-
-Backend HTTPS example after your domain points to the VM:
+Install Certbot on the VM using `Run command`:
 
 ```bash
+sudo apt update
 sudo apt install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d api.yourdomain.com
 ```
 
-Then update `config.js`:
+Then update frontend `config.js` through Cloud Shell:
 
 ```js
 window.CONVERTER_API_URL = "https://api.yourdomain.com";
 ```
 
-Upload the updated `config.js` again:
+## 15. Useful Azure Portal Checks
 
-```powershell
-az storage blob upload `
-  --account-name $STORAGE `
-  --container-name "`$web" `
-  --name config.js `
-  --file .\config.js `
-  --overwrite `
-  --account-key $STORAGE_KEY
-```
+Backend status:
 
-## 14. Useful Backend Commands
-
-SSH into the VM:
-
-```powershell
-ssh $ADMIN@$PUBLIC_IP
-```
-
-View backend status:
+1. Open the VM.
+2. Go to `Run command`.
+3. Run:
 
 ```bash
 pm2 status
 ```
 
-View backend logs:
+Backend logs:
 
 ```bash
-pm2 logs universal-converter-api
+pm2 logs universal-converter-api --lines 100
 ```
 
-Restart backend:
+Nginx status:
 
 ```bash
-pm2 restart universal-converter-api
+sudo systemctl status nginx --no-pager
 ```
 
-Restart Nginx:
+Health check:
 
 ```bash
-sudo systemctl restart nginx
+curl http://localhost:8080/health
 ```
 
-Check Nginx config:
+## 16. Clean Up Resources From Azure UI
 
-```bash
-sudo nginx -t
-```
+When you are done:
 
-## 15. Clean Up Azure Resources
+1. Open Azure Portal.
+2. Search for `Resource groups`.
+3. Open `rg-universal-converter`.
+4. Click `Delete resource group`.
+5. Type the resource group name to confirm.
+6. Click `Delete`.
 
-When you no longer need the deployment:
-
-```powershell
-az group delete --name $RG --yes --no-wait
-```
-
-This deletes the VM, storage account, public IP, network resources, and all resources created in this guide.
+This deletes the VM, public IP, network security group, storage account, and all related resources in that resource group.
